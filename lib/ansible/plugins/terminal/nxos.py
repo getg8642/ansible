@@ -28,12 +28,13 @@ from ansible.errors import AnsibleConnectionFailure
 class TerminalModule(TerminalBase):
 
     terminal_stdout_re = [
-        re.compile(br'[\r\n]?[a-zA-Z]{1}[a-zA-Z0-9-]*[>|#|%](?:\s*)$'),
-        re.compile(br'[\r\n]?[a-zA-Z]{1}[a-zA-Z0-9-]*\(.+\)#(?:\s*)$')
+        re.compile(br'[\r\n](?!\s*<)?(\x1b\S+)*[a-zA-Z_]{1}[a-zA-Z0-9-_.]*[>|#|%](?:\s*)*(\x1b\S+)*$'),
+        re.compile(br'[\r\n]?[a-zA-Z]{1}[a-zA-Z0-9-_.]*\(.+\)#(?:\s*)$')
     ]
 
     terminal_stderr_re = [
         re.compile(br"% ?Error"),
+        re.compile(br"^error:(.*)", re.I),
         re.compile(br"^% \w+", re.M),
         re.compile(br"% ?Bad secret"),
         re.compile(br"invalid input", re.I),
@@ -43,7 +44,8 @@ class TerminalModule(TerminalBase):
         re.compile(br"'[^']' +returned error code: ?\d+"),
         re.compile(br"syntax error"),
         re.compile(br"unknown command"),
-        re.compile(br"user not present")
+        re.compile(br"user not present"),
+        re.compile(br"invalid (.+?)at '\^' marker", re.I)
     ]
 
     def on_open_shell(self):

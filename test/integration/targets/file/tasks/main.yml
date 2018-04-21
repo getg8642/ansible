@@ -18,6 +18,13 @@
 
 - set_fact: output_file={{output_dir}}/foo.txt
 
+# same as expanduser & expandvars called on managed host
+- command: 'echo {{ output_file }}'
+  register: echo
+
+- set_fact:
+    remote_file_expanded: '{{ echo.stdout }}'
+
 - name: prep with a basic copy
   copy: src=foo.txt dest={{output_file}}
 
@@ -62,6 +69,22 @@
       - "file4_result.changed == true"
       - "file4_result.mode == '0600'"
 
+- name: change file attribute "A"
+  file: path={{output_dir}}/baz.txt attributes=A
+  register: file_attributes_result
+  ignore_errors: True
+
+- name: reapply file attribute "A"
+  file: path={{output_dir}}/baz.txt attributes=A
+  register: file_attributes_result_2
+  when: file_attributes_result is changed
+
+- name: verify that the file was not marked as changed
+  assert:
+    that:
+      - "file_attributes_result_2 is not changed"
+  when: file_attributes_result is changed
+
 - name: change ownership and group
   file: path={{output_dir}}/baz.txt owner=1234 group=1234
 
@@ -105,8 +128,8 @@
   assert:
     that:
       - "file5a_result.changed == true"
-      - "file5a_result.diff.before.src == output_file|expanduser"
-      - "file5a_result.diff.after.src == output_file|basename"
+      - "file5a_result.diff.before.src == remote_file_expanded"
+      - "file5a_result.diff.after.src == remote_file_expanded|basename"
 
 - name: soft link idempotency check
   file: src={{output_file|basename}} dest={{output_dir}}/soft.txt state=link
@@ -134,6 +157,51 @@
   assert:
     that:
       - "file6_touch_result.changed == true"
+
+- name: stat1
+  stat: path={{output_file}}
+  register: hlstat1
+
+- name: stat2
+  stat: path={{output_dir}}/hard.txt
+  register: hlstat2
+
+- name: verify that hard link is still the same after timestamp updated
+  assert:
+    that:
+      - "hlstat1.stat.inode == hlstat2.stat.inode"
+
+- name: create hard link to file 2
+  file: src={{output_file}} dest={{output_dir}}/hard.txt state=hard
+  register: hlink_result
+
+- name: verify that hard link creation is idempotent
+  assert:
+    that:
+      - "hlink_result.changed == False"
+
+- name: Change mode on a hard link
+  file: src={{output_file}} dest={{output_dir}}/hard.txt mode=0701
+  register: file6_mode_change
+
+- name: verify that the hard link was touched
+  assert:
+    that:
+      - "file6_touch_result.changed == true"
+
+- name: stat1
+  stat: path={{output_file}}
+  register: hlstat1
+
+- name: stat2
+  stat: path={{output_dir}}/hard.txt
+  register: hlstat2
+
+- name: verify that hard link is still the same after timestamp updated
+  assert:
+    that:
+      - "hlstat1.stat.inode == hlstat2.stat.inode"
+      - "hlstat1.stat.mode == '0701'"
 
 - name: create a directory
   file: path={{output_dir}}/foobar state=directory
@@ -304,10 +372,36 @@
   file: src=../sub1/file1 dest={{output_dir}}/sub2/link1 state=link
   register: file20_result
 
-- name: verify that the result was marked as changed
+- name: Get stat info for the link
+  stat:
+    path: '{{ output_dir }}/sub2/link1'
+    follow: False
+  register: file20_link_stat
+
+- name: Get stat info for the pointed to file
+  stat:
+    path: '{{ output_dir }}/sub2/link1'
+    follow: True
+  register: file20_links_dest_stat
+
+- name: Get stat info for the file we intend to point to
+  stat:
+    path: '{{ output_dir }}/sub1/file1'
+    follow: False
+  register: file20_dest_stat
+
+- debug: var=file20_dest_stat
+- name: verify that the link was created correctly
   assert:
     that:
+      # file command reports it created something
       - "file20_result.changed == true"
+      # file command created a link
+      - 'file20_link_stat["stat"]["islnk"]'
+      # Link points to the right path
+      - 'file20_link_stat["stat"]["lnk_target"] == "../sub1/file1"'
+      # The link target and the file we intended to link to have the same inode
+      - 'file20_links_dest_stat["stat"]["inode"] == file20_dest_stat["stat"]["inode"]'
 
 - name: create soft link to relative directory
   file: src=sub1 dest={{output_dir}}/sub1-link state=link

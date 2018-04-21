@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible. If not, see <http://www.gnu.org/licenses/>.
 
-ANSIBLE_METADATA = {'metadata_version': '1.0',
+ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
@@ -39,7 +39,6 @@ options:
   cidr:
     description:
       - CIDR of the rule.
-    required: false
     default: '0.0.0.0/0'
   rule_position:
     description:
@@ -50,39 +49,28 @@ options:
     description:
       - Protocol of the rule
     choices: [ tcp, udp, icmp, all, by_number ]
-    required: false
     default: tcp
   protocol_number:
     description:
       - Protocol number from 1 to 256 required if C(protocol=by_number).
-    required: false
-    default: null
   start_port:
     description:
       - Start port for this rule.
       - Considered if C(protocol=tcp) or C(protocol=udp).
-    required: false
-    default: null
     aliases: [ port ]
   end_port:
     description:
       - End port for this rule.
       - Considered if C(protocol=tcp) or C(protocol=udp).
       - If not specified, equal C(start_port).
-    required: false
-    default: null
   icmp_type:
     description:
       - Type of the icmp message being sent.
       - Considered if C(protocol=icmp).
-    required: false
-    default: null
   icmp_code:
     description:
       - Error code for this icmp message.
       - Considered if C(protocol=icmp).
-    required: false
-    default: null
   vpc:
     description:
       - VPC the network ACL is related to.
@@ -90,14 +78,12 @@ options:
   traffic_type:
     description:
       - Traffic type of the rule.
-    required: false
     choices: [ ingress, egress ]
     default: ingress
     aliases: [ type ]
   action_policy:
     description:
       - Action policy of the rule.
-    required: false
     choices: [ allow, deny ]
     default: ingress
     aliases: [ action ]
@@ -105,87 +91,76 @@ options:
     description:
       - List of tags. Tags are a list of dictionaries having keys C(key) and C(value).
       - "If you want to delete all tags, set a empty list e.g. C(tags: [])."
-    required: false
-    default: null
     aliases: [ tag ]
   domain:
     description:
       - Domain the VPC is related to.
-    required: false
-    default: null
   account:
     description:
       - Account the VPC is related to.
-    required: false
-    default: null
   project:
     description:
       - Name of the project the VPC is related to.
-    required: false
-    default: null
   zone:
     description:
       - Name of the zone the VPC related to.
       - If not set, default zone is used.
-    required: false
-    default: null
   state:
     description:
       - State of the network ACL rule.
-    required: false
     default: present
     choices: [ present, absent ]
   poll_async:
     description:
       - Poll async jobs until job has finished.
-    required: false
-    default: true
+    type: bool
+    default: 'yes'
 extends_documentation_fragment: cloudstack
 '''
 
 EXAMPLES = '''
 # create a network ACL rule, allow port 80 ingress
-local_action:
-  module: cs_network_acl_rule
-  network_acl: web
-  rule_position: 1
-  vpc: my vpc
-  traffic_type: ingress
-  action_policy: allow
-  port: 80
-  cidr: 0.0.0.0/0
+- local_action:
+    module: cs_network_acl_rule
+    network_acl: web
+    rule_position: 1
+    vpc: my vpc
+    traffic_type: ingress
+    action_policy: allow
+    port: 80
+    cidr: 0.0.0.0/0
 
 # create a network ACL rule, deny port range 8000-9000 ingress for 10.20.0.0/16
-local_action:
-  module: cs_network_acl_rule
-  network_acl: web
-  rule_position: 1
-  vpc: my vpc
-  traffic_type: ingress
-  action_policy: deny
-  start_port: 8000
-  end_port: 8000
-  cidr: 10.20.0.0/16
+- local_action:
+    module: cs_network_acl_rule
+    network_acl: web
+    rule_position: 1
+    vpc: my vpc
+    traffic_type: ingress
+    action_policy: deny
+    start_port: 8000
+    end_port: 8000
+    cidr: 10.20.0.0/16
 
 # create a network ACL rule
-local_action:
-  module: cs_network_acl_rule
-  network_acl: web
-  rule_position: 1
-  vpc: my vpc
-  traffic_type: ingress
-  action_policy: deny
-  start_port: 8000
-  end_port: 8000
-  cidr: 10.20.0.0/16
+- local_action:
+    module: cs_network_acl_rule
+    network_acl: web
+    rule_position: 1
+    vpc: my vpc
+    traffic_type: ingress
+    action_policy: deny
+    start_port: 8000
+    end_port: 8000
+    cidr: 10.20.0.0/16
 
 # remove a network ACL rule
-local_action:
-  module: cs_network_acl_rule
-  network_acl: web
-  rule_position: 1
-  vpc: my vpc
-  state: absent
+- local_action:
+    module: cs_network_acl_rule
+    network_acl: web
+    rule_position: 1
+    vpc: my vpc
+    state: absent
 '''
 
 RETURN = '''
@@ -285,7 +260,6 @@ zone:
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.cloudstack import (
     AnsibleCloudStack,
-    CloudStackException,
     cs_argument_spec,
     cs_required_together
 )
@@ -317,7 +291,7 @@ class AnsibleCloudStackNetworkAclRule(AnsibleCloudStack):
             'domainid': self.get_domain(key='id'),
             'projectid': self.get_project(key='id'),
         }
-        network_acl_rules = self.cs.listNetworkACLs(**args)
+        network_acl_rules = self.query_api('listNetworkACLs', **args)
         for acl_rule in network_acl_rules.get('networkacl', []):
             if acl_rule['number'] == self.module.params.get('rule_position'):
                 return acl_rule
@@ -358,9 +332,7 @@ class AnsibleCloudStackNetworkAclRule(AnsibleCloudStack):
                 'id': network_acl_rule['id'],
             }
             if not self.module.check_mode:
-                res = self.cs.deleteNetworkACL(**args)
-                if 'errortext' in res:
-                    self.fail_json(msg="Failed: '%s'" % res['errortext'])
+                res = self.query_api('deleteNetworkACL', **args)
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
@@ -384,9 +356,7 @@ class AnsibleCloudStackNetworkAclRule(AnsibleCloudStack):
             'cidrlist': self.module.params.get('cidr'),
         }
         if not self.module.check_mode:
-            res = self.cs.createNetworkACL(**args)
-            if 'errortext' in res:
-                self.fail_json(msg="Failed: '%s'" % res['errortext'])
+            res = self.query_api('createNetworkACL', **args)
 
             poll_async = self.module.params.get('poll_async')
             if poll_async:
@@ -410,9 +380,7 @@ class AnsibleCloudStackNetworkAclRule(AnsibleCloudStack):
         if self.has_changed(args, network_acl_rule):
             self.result['changed'] = True
             if not self.module.check_mode:
-                res = self.cs.updateNetworkACLItem(**args)
-                if 'errortext' in res:
-                    self.fail_json(msg="Failed: '%s'" % res['errortext'])
+                res = self.query_api('updateNetworkACLItem', **args)
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
@@ -470,19 +438,15 @@ def main():
         supports_check_mode=True
     )
 
-    try:
-        acs_network_acl_rule = AnsibleCloudStackNetworkAclRule(module)
+    acs_network_acl_rule = AnsibleCloudStackNetworkAclRule(module)
 
-        state = module.params.get('state')
-        if state == 'absent':
-            network_acl_rule = acs_network_acl_rule.absent_network_acl_rule()
-        else:
-            network_acl_rule = acs_network_acl_rule.present_network_acl_rule()
+    state = module.params.get('state')
+    if state == 'absent':
+        network_acl_rule = acs_network_acl_rule.absent_network_acl_rule()
+    else:
+        network_acl_rule = acs_network_acl_rule.present_network_acl_rule()
 
-        result = acs_network_acl_rule.get_result(network_acl_rule)
-
-    except CloudStackException as e:
-        module.fail_json(msg='CloudStackException: %s' % str(e))
+    result = acs_network_acl_rule.get_result(network_acl_rule)
 
     module.exit_json(**result)
 

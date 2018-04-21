@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible. If not, see <http://www.gnu.org/licenses/>.
 
-ANSIBLE_METADATA = {'metadata_version': '1.0',
+ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
@@ -39,35 +39,26 @@ options:
   state:
     description:
       - State of the VPN gateway.
-    required: false
     default: "present"
     choices: [ 'present', 'absent' ]
   domain:
     description:
       - Domain the VPN gateway is related to.
-    required: false
-    default: null
   account:
     description:
       - Account the VPN gateway is related to.
-    required: false
-    default: null
   project:
     description:
       - Name of the project the VPN gateway is related to.
-    required: false
-    default: null
   zone:
     description:
       - Name of the zone the VPC is related to.
       - If not set, default zone is used.
-    required: false
-    default: null
   poll_async:
     description:
       - Poll async jobs until job has finished.
-    required: false
-    default: true
+    type: bool
+    default: 'yes'
 extends_documentation_fragment: cloudstack
 '''
 
@@ -121,7 +112,6 @@ project:
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.cloudstack import (
     AnsibleCloudStack,
-    CloudStackException,
     cs_argument_spec,
     cs_required_together
 )
@@ -142,7 +132,7 @@ class AnsibleCloudStackVpnGateway(AnsibleCloudStack):
             'domainid': self.get_domain(key='id'),
             'projectid': self.get_project(key='id')
         }
-        vpn_gateways = self.cs.listVpnGateways(**args)
+        vpn_gateways = self.query_api('listVpnGateways', **args)
         if vpn_gateways:
             return vpn_gateways['vpngateway'][0]
         return None
@@ -158,9 +148,7 @@ class AnsibleCloudStackVpnGateway(AnsibleCloudStack):
                 'projectid': self.get_project(key='id')
             }
             if not self.module.check_mode:
-                res = self.cs.createVpnGateway(**args)
-                if 'errortext' in res:
-                    self.module.fail_json(msg="Failed: '%s'" % res['errortext'])
+                res = self.query_api('createVpnGateway', **args)
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
@@ -176,9 +164,7 @@ class AnsibleCloudStackVpnGateway(AnsibleCloudStack):
                 'id': vpn_gateway['id']
             }
             if not self.module.check_mode:
-                res = self.cs.deleteVpnGateway(**args)
-                if 'errortext' in res:
-                    self.module.fail_json(msg="Failed: '%s'" % res['errortext'])
+                res = self.query_api('deleteVpnGateway', **args)
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
@@ -211,19 +197,15 @@ def main():
         supports_check_mode=True
     )
 
-    try:
-        acs_vpn_gw = AnsibleCloudStackVpnGateway(module)
+    acs_vpn_gw = AnsibleCloudStackVpnGateway(module)
 
-        state = module.params.get('state')
-        if state == "absent":
-            vpn_gateway = acs_vpn_gw.absent_vpn_gateway()
-        else:
-            vpn_gateway = acs_vpn_gw.present_vpn_gateway()
+    state = module.params.get('state')
+    if state == "absent":
+        vpn_gateway = acs_vpn_gw.absent_vpn_gateway()
+    else:
+        vpn_gateway = acs_vpn_gw.present_vpn_gateway()
 
-        result = acs_vpn_gw.get_result(vpn_gateway)
-
-    except CloudStackException as e:
-        module.fail_json(msg='CloudStackException: %s' % str(e))
+    result = acs_vpn_gw.get_result(vpn_gateway)
 
     module.exit_json(**result)
 

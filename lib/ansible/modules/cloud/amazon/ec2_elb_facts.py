@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
-ANSIBLE_METADATA = {'metadata_version': '1.0',
+ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
@@ -32,8 +32,6 @@ options:
   names:
     description:
       - List of ELB names to gather facts about. Pass this option to gather facts about a set of ELBs, otherwise, all ELBs are returned.
-    required: false
-    default: null
     aliases: ['elb_ids', 'ec2_elbs']
 extends_documentation_fragment:
     - aws
@@ -207,7 +205,6 @@ class ElbInformation(object):
             except ZeroDivisionError:
                 elb_info['instances_inservice_percent'] = 0.
         return elb_info
-
 
     def list_elbs(self):
         elb_array, token = [], None

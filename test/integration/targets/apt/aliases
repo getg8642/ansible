@@ -1,2 +1,5 @@
-destructive
 posix/ci/group1
+destructive
+skip/freebsd
+skip/osx
+skip/rhel

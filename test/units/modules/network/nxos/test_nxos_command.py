@@ -31,10 +31,13 @@ class TestNxosCommandModule(TestNxosModule):
     module = nxos_command
 
     def setUp(self):
+        super(TestNxosCommandModule, self).setUp()
+
         self.mock_run_commands = patch('ansible.modules.network.nxos.nxos_command.run_commands')
         self.run_commands = self.mock_run_commands.start()
 
     def tearDown(self):
+        super(TestNxosCommandModule, self).tearDown()
         self.mock_run_commands.stop()
 
     def load_fixtures(self, commands=None, device=''):
@@ -67,7 +70,7 @@ class TestNxosCommandModule(TestNxosModule):
         self.assertTrue(result['stdout'][0].startswith('Cisco'))
 
     def test_nxos_command_wait_for(self):
-        wait_for = 'result[0] contains "Cisco NX-OS"'
+        wait_for = 'result[0] contains "NX-OS"'
         set_module_args(dict(commands=['show version'], wait_for=wait_for))
         self.execute_module()
 
@@ -91,7 +94,7 @@ class TestNxosCommandModule(TestNxosModule):
 
     def test_nxos_command_match_all(self):
         wait_for = ['result[0] contains "Cisco"',
-                    'result[0] contains "system image file"']
+                    'result[0] contains "image file"']
         set_module_args(dict(commands=['show version'], wait_for=wait_for, match='all'))
         self.execute_module()
 

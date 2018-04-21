@@ -3,9 +3,13 @@
 set -o pipefail
 
 declare -a args
-IFS='/:' read -ra args <<< "${TEST}"
+IFS='/:' read -ra args <<< "$1"
 
-job="${args[1]}"
+version="${args[1]}"
+target="windows/ci/group${args[2]}/"
+
+stage="${S:-prod}"
+provider="${P:-default}"
 
 # python versions to test in order
 # python 2.7 runs full tests while other versions run minimal tests
@@ -16,56 +20,73 @@ python_versions=(
     2.7
 )
 
-# shellcheck disable=SC2086
-ansible-test windows-integration --explain ${CHANGED:+"$CHANGED"} 2>&1 | { grep ' windows-integration: .* (targeted)$' || true; } > /tmp/windows.txt
+# version to test when only testing a single version
+single_version=2012-R2
 
-if [ -s /tmp/windows.txt ]; then
+# shellcheck disable=SC2086
+ansible-test windows-integration "${target}" --explain ${CHANGED:+"$CHANGED"} ${UNSTABLE:+"$UNSTABLE"} 2>&1 \
+    | { grep ' windows-integration: .* (targeted)$' || true; } > /tmp/windows.txt
+
+if [ -s /tmp/windows.txt ] || [ "${CHANGED:+$CHANGED}" == "" ]; then
     echo "Detected changes requiring integration tests specific to Windows:"
     cat /tmp/windows.txt
 
-    if [ "${job}" != "1" ]; then
-        echo "Nothing to do, all Windows tests will run under TEST=windows/1 instead."
-        exit 0
-    fi
-
     echo "Running Windows integration tests for multiple versions concurrently."
 
-    target="windows/ci/"
-
     platforms=(
-        --windows 2008-SP2
-        --windows 2008-R2_SP1
-        --windows 2012-RTM
-        --windows 2012-R2_RTM
+        --windows "${version}"
     )
 else
     echo "No changes requiring integration tests specific to Windows were detected."
-    echo "Running Windows integration tests for a single version only."
+    echo "Running Windows integration tests for a single version only: ${single_version}"
 
-    target="windows/ci/group${job}/"
+    if [ "${version}" != "${single_version}" ]; then
+        echo "Skipping this job since it is for: ${version}"
+        exit 0
+    fi
 
     platforms=(
-        --windows 2012-R2_RTM
+        --windows "${version}"
     )
 fi
 
-retry.py pip install tox --disable-pip-version-check
-
 for version in "${python_versions[@]}"; do
-    # clean up between test runs until we switch from --tox to --docker
-    rm -rf ~/.ansible/{cp,pc,tmp}/
+    changed_all_target="all"
 
-    if [ "${job}" == "1" ] || [ "${version}" == "2.7" ]; then
-        if [ "${version}" == "2.7" ]; then
-            # full tests for python 2.7
+    if [ "${version}" == "2.7" ]; then
+        # smoketest tests for python 2.7
+        if [ "${CHANGED}" ]; then
+            # with change detection enabled run tests for anything changed
+            # use the smoketest tests for any change that triggers all tests
             ci="${target}"
+            if [ "${target}" == "windows/ci/group1/" ]; then
+                # only run smoketest tests for group1
+                changed_all_target="windows/ci/smoketest/"
+            else
+                # smoketest tests already covered by group1
+                changed_all_target="none"
+            fi
         else
-            # minimal tests for other python versions
-            ci="windows/ci/minimal/"
+            # without change detection enabled run entire test group
+            ci="${target}"
         fi
-
-        # shellcheck disable=SC2086
-        ansible-test windows-integration --color -v --retry-on-error "${ci}" --tox --python "${version}" ${COVERAGE:+"$COVERAGE"} ${CHANGED:+"$CHANGED"} \
-            "${platforms[@]}"
+    else
+        # only run minimal tests for group1
+        if [ "${target}" != "windows/ci/group1/" ]; then continue; fi
+        # minimal tests for other python versions
+        ci="windows/ci/minimal/"
     fi
+
+    # terminate remote instances on the final python version tested
+    if [ "${version}" = "${python_versions[-1]}" ]; then
+        terminate="always"
+    else
+        terminate="never"
+    fi
+
+    # shellcheck disable=SC2086
+    ansible-test windows-integration --color -v --retry-on-error "${ci}" ${COVERAGE:+"$COVERAGE"} ${CHANGED:+"$CHANGED"} ${UNSTABLE:+"$UNSTABLE"} \
+        "${platforms[@]}" --changed-all-target "${changed_all_target}" \
+        --docker default --python "${version}" \
+        --remote-terminate "${terminate}" --remote-stage "${stage}" --remote-provider "${provider}"
 done
