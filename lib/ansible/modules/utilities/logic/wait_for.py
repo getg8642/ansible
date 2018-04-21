@@ -160,6 +160,7 @@ EXAMPLES = '''
 
 import binascii
 import datetime
+import errno
 import math
 import os
 import re
@@ -232,14 +233,23 @@ class TCPConnectionInfo(object):
     def get_active_connections_count(self):
         active_connections = 0
         for p in psutil.process_iter():
-            connections = p.get_connections(kind='inet')
+            if hasattr(p, 'get_connections'):
+                connections = p.get_connections(kind='inet')
+            else:
+                connections = p.connections(kind='inet')
             for conn in connections:
                 if conn.status not in self.module.params['active_connection_states']:
                     continue
-                (local_ip, local_port) = conn.local_address
+                if hasattr(conn, 'local_address'):
+                    (local_ip, local_port) = conn.local_address
+                else:
+                    (local_ip, local_port) = conn.laddr
                 if self.port != local_port:
                     continue
-                (remote_ip, remote_port) = conn.remote_address
+                if hasattr(conn, 'remote_address'):
+                    (remote_ip, remote_port) = conn.remote_address
+                else:
+                    (remote_ip, remote_port) = conn.raddr
                 if (conn.family, remote_ip) in self.exclude_ips:
                     continue
                 if any((
@@ -540,15 +550,29 @@ def main():
                                 break
 
                         # Shutdown the client socket
-                        s.shutdown(socket.SHUT_RDWR)
-                        s.close()
+                        try:
+                            s.shutdown(socket.SHUT_RDWR)
+                        except socket.error:
+                            e = get_exception()
+                            if e.errno != errno.ENOTCONN:
+                                raise
+                        # else, the server broke the connection on its end, assume it's not ready
+                        else:
+                            s.close()
                         if matched:
                             # Found our string, success!
                             break
                     else:
                         # Connection established, success!
-                        s.shutdown(socket.SHUT_RDWR)
-                        s.close()
+                        try:
+                            s.shutdown(socket.SHUT_RDWR)
+                        except socket.error:
+                            e = get_exception()
+                            if e.errno != errno.ENOTCONN:
+                                raise
+                        # else, the server broke the connection on its end, assume it's not ready
+                        else:
+                            s.close()
                         break
 
             # Conditions not yet met, wait and try again

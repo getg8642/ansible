@@ -72,6 +72,12 @@ def _ssh_retry(func):
         remaining_tries = int(C.ANSIBLE_SSH_RETRIES) + 1
         cmd_summary = "%s..." % args[0]
         for attempt in range(remaining_tries):
+            cmd = args[0]
+            if attempt != 0 and self._play_context.password and isinstance(cmd, list):
+                # If this is a retry, the fd/pipe for sshpass is closed, and we need a new one
+                self.sshpass_pipe = os.pipe()
+                cmd[1] = b'-d' + to_bytes(self.sshpass_pipe[0], nonstring='simplerepr', errors='surrogate_or_strict')
+
             try:
                 try:
                     return_tuple = func(self, *args, **kwargs)
@@ -411,8 +417,7 @@ class Connection(ConnectionBase):
 
         return b''.join(output), remainder
 
-    @_ssh_retry
-    def _run(self, cmd, in_data, sudoable=True, checkrc=True):
+    def _bare_run(self, cmd, in_data, sudoable=True, checkrc=True):
         '''
         Starts the command and communicates with it until it ends.
         '''
@@ -598,6 +603,9 @@ class Connection(ConnectionBase):
                     if self._flags['become_prompt']:
                         display.debug('Sending become_pass in response to prompt')
                         stdin.write(to_bytes(self._play_context.become_pass) + b'\n')
+                        # On python3 stdin is a BufferedWriter, and we don't have a guarantee
+                        # that the write will happen without a flush
+                        stdin.flush()
                         self._flags['become_prompt'] = False
                         state += 1
                     elif self._flags['become_success']:
@@ -684,6 +692,13 @@ class Connection(ConnectionBase):
 
         return (p.returncode, b_stdout, b_stderr)
 
+    @_ssh_retry
+    def _run(self, cmd, in_data, sudoable=True, checkrc=True):
+        """Wrapper around _bare_run that retries the connection
+        """
+        return self._bare_run(cmd, in_data, sudoable, checkrc)
+
+    @_ssh_retry
     def _file_transport_command(self, in_path, out_path, sftp_action):
         # scp and sftp require square brackets for IPv6 addresses, but
         # accept them for hostnames and IPv4 addresses too.
@@ -724,14 +739,14 @@ class Connection(ConnectionBase):
                 cmd = self._build_command('sftp', to_bytes(host))
                 in_data = u"{0} {1} {2}\n".format(sftp_action, shlex_quote(in_path), shlex_quote(out_path))
                 in_data = to_bytes(in_data, nonstring='passthru')
-                (returncode, stdout, stderr) = self._run(cmd, in_data, checkrc=False)
+                (returncode, stdout, stderr) = self._bare_run(cmd, in_data, checkrc=False)
             elif method == 'scp':
                 if sftp_action == 'get':
                     cmd = self._build_command('scp', u'{0}:{1}'.format(host, shlex_quote(in_path)), out_path)
                 else:
                     cmd = self._build_command('scp', in_path, u'{0}:{1}'.format(host, shlex_quote(out_path)))
                 in_data = None
-                (returncode, stdout, stderr) = self._run(cmd, in_data, checkrc=False)
+                (returncode, stdout, stderr) = self._bare_run(cmd, in_data, checkrc=False)
             elif method == 'piped':
                 if sftp_action == 'get':
                     # we pass sudoable=False to disable pty allocation, which

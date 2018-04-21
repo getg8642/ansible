@@ -490,7 +490,7 @@ class LinuxService(Service):
             self.upstart_version = LooseVersion('0.0.0')
             try:
                 version_re = re.compile(r'\(upstart (.*)\)')
-                rc,stdout,stderr = self.module.run_command('initctl version')
+                rc,stdout,stderr = self.module.run_command('%s version' % location['initctl'])
                 if rc == 0:
                     res = version_re.search(stdout)
                     if res:
@@ -498,9 +498,7 @@ class LinuxService(Service):
             except:
                 pass  # we'll use the default of 0.0.0
 
-            if location.get('start', False):
-                # upstart -- rather than being managed by one command, start/stop/restart are actual commands
-                self.svc_cmd = ''
+            self.svc_cmd = location['initctl']
 
         elif location.get('rc-service', False):
             # service is managed by OpenRC
@@ -922,8 +920,13 @@ class LinuxService(Service):
         arguments = self.arguments
         if self.svc_cmd:
             if not self.svc_cmd.endswith("systemctl"):
-                # SysV and OpenRC take the form <cmd> <name> <action>
-                svc_cmd = "%s %s" % (self.svc_cmd, self.name)
+                if self.svc_cmd.endswith("initctl"):
+                    # initctl commands take the form <cmd> <action> <name>
+                    svc_cmd = self.svc_cmd
+                    arguments = "%s %s" % (self.name, arguments)
+                else:
+                    # SysV and OpenRC take the form <cmd> <name> <action>
+                    svc_cmd = "%s %s" % (self.svc_cmd, self.name)
             else:
                 # systemd commands take the form <cmd> <action> <name>
                 svc_cmd = self.svc_cmd
@@ -1392,20 +1395,21 @@ class SunOSService(Service):
         elif (not self.enable) and (not startup_enabled):
             return
 
-        # Mark service as started or stopped (this will have the side effect of
-        # actually stopping or starting the service)
-        if self.enable:
-            subcmd = "enable -rs"
-        else:
-            subcmd = "disable -s"
-
-        rc, stdout, stderr = self.execute_command("%s %s %s" % (self.svcadm_cmd, subcmd, self.name))
-
-        if rc != 0:
-            if stderr:
-                self.module.fail_json(msg=stderr)
+        if not self.module.check_mode:
+            # Mark service as started or stopped (this will have the side effect of
+            # actually stopping or starting the service)
+            if self.enable:
+                subcmd = "enable -rs"
             else:
-                self.module.fail_json(msg=stdout)
+                subcmd = "disable -s"
+
+            rc, stdout, stderr = self.execute_command("%s %s %s" % (self.svcadm_cmd, subcmd, self.name))
+
+            if rc != 0:
+                if stderr:
+                    self.module.fail_json(msg=stderr)
+                else:
+                    self.module.fail_json(msg=stdout)
 
         self.changed = True
 
